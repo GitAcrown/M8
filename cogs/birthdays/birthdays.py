@@ -16,6 +16,8 @@ MONTHS_FR = (
 )
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
 DEFAULT_ANNOUNCE_LIMIT = 15
+MIN_BIRTH_YEAR = 1900
+CURRENT_YEAR = date.today().year
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +65,19 @@ def _countdown_label(days_until: int) -> str:
     return f"dans {days_until} jours"
 
 
+def _parse_month(raw: str) -> int | None:
+    """Accepte aussi bien un numéro (`3`) qu'un nom de mois (`mars`), pour couvrir le cas où
+    l'utilisateur valide sans passer par l'autocomplétion."""
+    raw = raw.strip().lower()
+    if raw.isdigit():
+        month = int(raw)
+        return month if 1 <= month <= 12 else None
+    try:
+        return MONTHS_FR.index(raw) + 1
+    except ValueError:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # UI — Annonce des anniversaires du jour (Components V2, purement présentatif)
 # ---------------------------------------------------------------------------
@@ -94,144 +109,6 @@ def _build_announcement_view(members: list[tuple[discord.Member, dict]]) -> disc
 
     view.add_item(container)
     return view
-
-
-# ---------------------------------------------------------------------------
-# UI — Panneau personnel de date de naissance
-# ---------------------------------------------------------------------------
-
-class BirthdaySetModal(discord.ui.Modal, title="Date de naissance"):
-    def __init__(self, view_ref: "BirthdayPanelView"):
-        super().__init__()
-        self._view_ref = view_ref
-        birthday = view_ref.birthday
-
-        self.day_input = discord.ui.TextInput(
-            label="Jour",
-            placeholder="1-31",
-            default=str(birthday["day"]) if birthday else "",
-            max_length=2,
-        )
-        self.month_input = discord.ui.TextInput(
-            label="Mois",
-            placeholder="1-12",
-            default=str(birthday["month"]) if birthday else "",
-            max_length=2,
-        )
-        self.year_input = discord.ui.TextInput(
-            label="Année (optionnel)",
-            placeholder="Ex. 1998 — laissez vide pour ne pas la préciser",
-            default=str(birthday["year"]) if birthday and birthday["year"] else "",
-            required=False,
-            max_length=4,
-        )
-        self.add_item(self.day_input)
-        self.add_item(self.month_input)
-        self.add_item(self.year_input)
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-        raw_day, raw_month, raw_year = (
-            self.day_input.value.strip(), self.month_input.value.strip(), self.year_input.value.strip()
-        )
-        if not raw_day.isdigit() or not raw_month.isdigit():
-            await interaction.followup.send("**Erreur ·** Le jour et le mois doivent être des nombres.", ephemeral=True)
-            return
-        year: int | None = None
-        if raw_year:
-            if not raw_year.isdigit() or not (1900 <= int(raw_year) <= date.today().year):
-                await interaction.followup.send("**Erreur ·** L'année précisée est invalide.", ephemeral=True)
-                return
-            year = int(raw_year)
-
-        day, month = int(raw_day), int(raw_month)
-        if not _is_valid_date(day, month, year):
-            await interaction.followup.send("**Erreur ·** Cette date n'existe pas.", ephemeral=True)
-            return
-
-        await self._view_ref.cog.set_birthday(self._view_ref.user.id, day, month, year)
-        await self._view_ref.refresh()
-
-
-class EditBirthdayButton(discord.ui.Button):
-    def __init__(self, view_ref: "BirthdayPanelView"):
-        super().__init__(
-            label="Modifier" if view_ref.birthday else "Renseigner",
-            style=discord.ButtonStyle.secondary,
-        )
-        self._view_ref = view_ref
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.send_modal(BirthdaySetModal(self._view_ref))
-
-
-class RemoveBirthdayButton(discord.ui.Button):
-    def __init__(self, view_ref: "BirthdayPanelView"):
-        super().__init__(label="Retirer", style=discord.ButtonStyle.red)
-        self._view_ref = view_ref
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer()
-        await self._view_ref.cog.remove_birthday(self._view_ref.user.id)
-        await self._view_ref.refresh()
-
-
-class BirthdayPanelView(discord.ui.LayoutView):
-    """Panneau personnel permettant à un utilisateur de gérer sa date de naissance."""
-
-    def __init__(self, cog: "Birthdays", user: discord.abc.User, birthday: dict | None):
-        super().__init__(timeout=180)
-        self.cog = cog
-        self.user = user
-        self.birthday = birthday
-        self._interaction: discord.Interaction | None = None
-        self._build()
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user != self.user:
-            await interaction.response.send_message(
-                "**Action impossible ·** Seul le propriétaire de ce panneau peut l'utiliser.", ephemeral=True
-            )
-            return False
-        return True
-
-    def _build(self) -> None:
-        self.clear_items()
-        container = discord.ui.Container()
-
-        container.add_item(discord.ui.TextDisplay(f"## Date de naissance — {self.user.display_name}"))
-        container.add_item(discord.ui.Separator())
-
-        value = _format_date(self.birthday["day"], self.birthday["month"], self.birthday["year"]) if self.birthday else "*Non renseignée*"
-        container.add_item(
-            discord.ui.Section(f"**Date enregistrée**\n{value}", accessory=EditBirthdayButton(self))
-        )
-
-        if self.birthday:
-            container.add_item(discord.ui.Separator())
-            row = discord.ui.ActionRow()
-            row.add_item(RemoveBirthdayButton(self))
-            container.add_item(row)
-
-        container.add_item(discord.ui.Separator())
-        container.add_item(
-            discord.ui.TextDisplay(
-                "-# Seuls le jour et le mois sont utilisés pour l'annonce des anniversaires. "
-                "L'année est optionnelle et sert uniquement à afficher l'âge."
-            )
-        )
-
-        self.add_item(container)
-
-    async def refresh(self) -> None:
-        self.birthday = await self.cog.get_birthday(self.user.id)
-        self._build()
-        if self._interaction:
-            await self._interaction.edit_original_response(view=self)
-
-    async def start(self, interaction: discord.Interaction) -> None:
-        self._interaction = interaction
-        await interaction.response.send_message(view=self, ephemeral=True)
 
 
 # ---------------------------------------------------------------------------
@@ -591,15 +468,140 @@ class Birthdays(commands.Cog):
         await self.bot.wait_until_ready()
 
     # ==================================================================
-    # COMMANDES
+    # COMMANDES — gestion de sa propre date de naissance
     # ==================================================================
 
-    @app_commands.command(name="birthday")
-    async def birthday(self, interaction: discord.Interaction) -> None:
-        """Ouvre votre panneau personnel de date de naissance."""
-        birthday = await self.get_birthday(interaction.user.id)
-        view = BirthdayPanelView(self, interaction.user, birthday)
-        await view.start(interaction)
+    birthday_group = app_commands.Group(name="birthday", description="Gérer les dates de naissance", guild_only=True)
+
+    async def _autocomplete_month(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        current = current.strip().lower()
+        names = [name for name in MONTHS_FR if current in name] if current else list(MONTHS_FR)
+        return [
+            app_commands.Choice(name=name.capitalize(), value=str(MONTHS_FR.index(name) + 1))
+            for name in names[:12]
+        ]
+
+    @birthday_group.command(name="set")
+    @app_commands.rename(day="jour", month="mois", year="annee")
+    @app_commands.describe(
+        day="Jour de naissance (1-31)",
+        month="Mois de naissance (utilisez l'autocomplétion)",
+        year="Année de naissance (optionnel, sert uniquement à afficher l'âge)",
+    )
+    async def set_own_birthday(
+        self,
+        interaction: discord.Interaction,
+        day: app_commands.Range[int, 1, 31],
+        month: str,
+        year: app_commands.Range[int, MIN_BIRTH_YEAR, CURRENT_YEAR] | None = None,
+    ) -> None:
+        """Renseigne ou met à jour votre date de naissance."""
+        month_num = _parse_month(month)
+        if month_num is None:
+            return await interaction.response.send_message(
+                "**Erreur ·** Mois invalide. Utilisez l'autocomplétion proposée.", ephemeral=True
+            )
+        if not _is_valid_date(day, month_num, year):
+            return await interaction.response.send_message("**Erreur ·** Cette date n'existe pas.", ephemeral=True)
+
+        await self.set_birthday(interaction.user.id, day, month_num, year)
+        await interaction.response.send_message(
+            f"**Date enregistrée ·** {_format_date(day, month_num, year)}.", ephemeral=True
+        )
+
+    @set_own_birthday.autocomplete("month")
+    async def autocomplete_set_own_month(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        return await self._autocomplete_month(interaction, current)
+
+    @birthday_group.command(name="remove")
+    async def remove_own_birthday(self, interaction: discord.Interaction) -> None:
+        """Retire votre date de naissance enregistrée."""
+        if not await self.get_birthday(interaction.user.id):
+            return await interaction.response.send_message(
+                "**Erreur ·** Vous n'avez pas de date de naissance enregistrée.", ephemeral=True
+            )
+        await self.remove_birthday(interaction.user.id)
+        await interaction.response.send_message("**Date retirée ·** Votre date de naissance a été supprimée.", ephemeral=True)
+
+    @birthday_group.command(name="show")
+    @app_commands.rename(user="utilisateur")
+    @app_commands.describe(user="Utilisateur dont afficher la date de naissance (par défaut, vous)")
+    async def show_birthday(self, interaction: discord.Interaction, user: discord.Member | None = None) -> None:
+        """Affiche une date de naissance enregistrée."""
+        target = user or interaction.user
+        birthday = await self.get_birthday(target.id)
+        if not birthday:
+            subject = "Vous n'avez" if target == interaction.user else f"{target.display_name} n'a"
+            return await interaction.response.send_message(
+                f"**Info ·** {subject} pas de date de naissance enregistrée.", ephemeral=True
+            )
+        date_str = _format_date(birthday["day"], birthday["month"], birthday["year"])
+        await interaction.response.send_message(
+            f"**Date de naissance de {target.display_name} ·** {date_str}", ephemeral=True
+        )
+
+    # ------------------------------------------------------------------
+    # COMMANDES — modération : gérer la date de naissance d'un autre membre
+    # ------------------------------------------------------------------
+
+    birthday_admin_group = app_commands.Group(
+        name="admin",
+        description="Gérer la date de naissance d'un autre membre",
+        parent=birthday_group,
+        default_permissions=discord.Permissions(manage_guild=True),
+    )
+
+    @birthday_admin_group.command(name="set")
+    @app_commands.rename(user="utilisateur", day="jour", month="mois", year="annee")
+    @app_commands.describe(
+        user="Membre concerné",
+        day="Jour de naissance (1-31)",
+        month="Mois de naissance (utilisez l'autocomplétion)",
+        year="Année de naissance (optionnel, sert uniquement à afficher l'âge)",
+    )
+    async def admin_set_birthday(
+        self,
+        interaction: discord.Interaction,
+        user: discord.Member,
+        day: app_commands.Range[int, 1, 31],
+        month: str,
+        year: app_commands.Range[int, MIN_BIRTH_YEAR, CURRENT_YEAR] | None = None,
+    ) -> None:
+        """Renseigne ou met à jour la date de naissance d'un membre du serveur."""
+        month_num = _parse_month(month)
+        if month_num is None:
+            return await interaction.response.send_message(
+                "**Erreur ·** Mois invalide. Utilisez l'autocomplétion proposée.", ephemeral=True
+            )
+        if not _is_valid_date(day, month_num, year):
+            return await interaction.response.send_message("**Erreur ·** Cette date n'existe pas.", ephemeral=True)
+
+        await self.set_birthday(user.id, day, month_num, year)
+        await interaction.response.send_message(
+            f"**Date enregistrée ·** {user.mention} — {_format_date(day, month_num, year)}.", ephemeral=True
+        )
+
+    @admin_set_birthday.autocomplete("month")
+    async def autocomplete_admin_set_month(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        return await self._autocomplete_month(interaction, current)
+
+    @birthday_admin_group.command(name="remove")
+    @app_commands.rename(user="utilisateur")
+    @app_commands.describe(user="Membre concerné")
+    async def admin_remove_birthday(self, interaction: discord.Interaction, user: discord.Member) -> None:
+        """Retire la date de naissance enregistrée d'un membre du serveur."""
+        if not await self.get_birthday(user.id):
+            return await interaction.response.send_message(
+                f"**Erreur ·** {user.mention} n'a pas de date de naissance enregistrée.", ephemeral=True
+            )
+        await self.remove_birthday(user.id)
+        await interaction.response.send_message(
+            f"**Date retirée ·** La date de naissance de {user.mention} a été supprimée.", ephemeral=True
+        )
+
+    # ==================================================================
+    # COMMANDES — serveur
+    # ==================================================================
 
     @app_commands.command(name="birthdays")
     @app_commands.guild_only()
