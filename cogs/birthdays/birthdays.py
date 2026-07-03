@@ -343,7 +343,7 @@ def _build_upcoming_view(entries: list[tuple[discord.Member, dict, date, int]]) 
                 container.add_item(discord.ui.Separator())
             lines = [f"**{month_name}**"]
             for member, birthday, _occurrence, days_until in group_entries:
-                lines.append(f"{member.mention} · le {birthday['day']} · {_countdown_label(days_until)}")
+                lines.append(f"{member.mention} · le {birthday['day']}\n-# {_countdown_label(days_until)}")
             container.add_item(discord.ui.TextDisplay("\n".join(lines)))
 
     view.add_item(container)
