@@ -15,7 +15,7 @@ MONTHS_FR = (
     "juillet", "août", "septembre", "octobre", "novembre", "décembre",
 )
 TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
-DEFAULT_ANNOUNCE_LIMIT = 15
+DEFAULT_ANNOUNCE_LIMIT = 5
 MIN_BIRTH_YEAR = 1900
 CURRENT_YEAR = date.today().year
 
@@ -343,7 +343,7 @@ def _build_upcoming_view(entries: list[tuple[discord.Member, dict, date, int]]) 
                 container.add_item(discord.ui.Separator())
             lines = [f"**{month_name}**"]
             for member, birthday, _occurrence, days_until in group_entries:
-                lines.append(f"{member.mention} · le **{birthday['day']}**\n-# {_countdown_label(days_until)}")
+                lines.append(f"{member.mention} · le **{birthday['day']}** · *{_countdown_label(days_until)}*")
             container.add_item(discord.ui.TextDisplay("\n".join(lines)))
 
     view.add_item(container)
