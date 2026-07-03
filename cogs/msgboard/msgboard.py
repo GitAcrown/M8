@@ -579,7 +579,7 @@ class MsgBoard(commands.Cog):
     # COMMANDES
     # ==================================================================
 
-    @app_commands.command(name="msgboardconfig")
+    @app_commands.command(name="msgbconfig")
     @app_commands.guild_only()
     @app_commands.default_permissions(manage_messages=True)
     async def config_msgboard(self, interaction: discord.Interaction) -> None:

@@ -485,7 +485,7 @@ class Birthdays(commands.Cog):
     # COMMANDES — gestion de sa propre date de naissance
     # ==================================================================
 
-    birthday_group = app_commands.Group(name="birthday", description="Gérer les dates de naissance", guild_only=True)
+    birthday_group = app_commands.Group(name="bday", description="Gérer les dates de naissance", guild_only=True)
 
     async def _autocomplete_month(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         current = current.strip().lower()
@@ -617,7 +617,7 @@ class Birthdays(commands.Cog):
     # COMMANDES — serveur
     # ==================================================================
 
-    @app_commands.command(name="birthdays")
+    @app_commands.command(name="bdays")
     @app_commands.guild_only()
     @app_commands.rename(limit="nombre")
     async def upcoming_birthdays(self, interaction: discord.Interaction, limit: app_commands.Range[int, 1, 25] = DEFAULT_ANNOUNCE_LIMIT) -> None:
@@ -649,7 +649,7 @@ class Birthdays(commands.Cog):
             view=_build_upcoming_view(entries[:limit]), allowed_mentions=discord.AllowedMentions.none()
         )
 
-    @app_commands.command(name="birthdayconfig")
+    @app_commands.command(name="bdayconfig")
     @app_commands.guild_only()
     @app_commands.default_permissions(manage_guild=True)
     async def config_birthday(self, interaction: discord.Interaction) -> None:
