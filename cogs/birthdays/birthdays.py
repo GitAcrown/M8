@@ -316,7 +316,11 @@ class BirthdayConfigView(discord.ui.LayoutView):
 # ---------------------------------------------------------------------------
 
 def _build_upcoming_view(entries: list[tuple[discord.Member, dict, date, int]]) -> discord.ui.LayoutView:
-    """`entries` : (membre, anniversaire, prochaine_occurrence, jours_restants), déjà triés."""
+    """`entries` : (membre, anniversaire, prochaine_occurrence, jours_restants), déjà triés.
+
+    Regroupées par mois pour alléger l'affichage ; les mentions utilisent `AllowedMentions.none()`
+    côté envoi pour ne pas notifier les membres cités.
+    """
     view = discord.ui.LayoutView(timeout=None)
     container = discord.ui.Container()
 
@@ -326,11 +330,21 @@ def _build_upcoming_view(entries: list[tuple[discord.Member, dict, date, int]]) 
     if not entries:
         container.add_item(discord.ui.TextDisplay("*Aucun anniversaire enregistré sur ce serveur.*"))
     else:
-        lines = []
-        for member, birthday, occurrence, days_until in entries:
-            date_str = _format_date(birthday["day"], birthday["month"], None)
-            lines.append(f"**{member.display_name}** · {date_str} · {_countdown_label(days_until)}")
-        container.add_item(discord.ui.TextDisplay("\n".join(lines)))
+        groups: list[tuple[str, list[tuple[discord.Member, dict, date, int]]]] = []
+        for entry in entries:
+            month_name = MONTHS_FR[entry[2].month - 1].capitalize()
+            if groups and groups[-1][0] == month_name:
+                groups[-1][1].append(entry)
+            else:
+                groups.append((month_name, [entry]))
+
+        for i, (month_name, group_entries) in enumerate(groups):
+            if i > 0:
+                container.add_item(discord.ui.Separator())
+            lines = [f"**{month_name}**"]
+            for member, birthday, _occurrence, days_until in group_entries:
+                lines.append(f"{member.mention} · le {birthday['day']} · {_countdown_label(days_until)}")
+            container.add_item(discord.ui.TextDisplay("\n".join(lines)))
 
     view.add_item(container)
     return view
@@ -631,7 +645,9 @@ class Birthdays(commands.Cog):
             entries.append((member, birthday, occurrence, days_until))
 
         entries.sort(key=lambda e: e[2])
-        await interaction.followup.send(view=_build_upcoming_view(entries[:limit]))
+        await interaction.followup.send(
+            view=_build_upcoming_view(entries[:limit]), allowed_mentions=discord.AllowedMentions.none()
+        )
 
     @app_commands.command(name="birthdayconfig")
     @app_commands.guild_only()
