@@ -1,0 +1,8 @@
+discord.py>=2.7.1
+aiohttp
+python-dotenv
+aiosqlite
+Pillow
+numpy
+opencv-python-headless
+colorgram.py
